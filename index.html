@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mapa Interactivo de Loteamiento — 1 - EDELIO</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    html, body, #map { width: 100%; height: 100%; overflow: hidden; }
+
+    .top-bar {
+      position: absolute;
+      top: 12px;
+      left: 55px;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 10px 14px;
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+      align-items: center;
+      max-width: calc(100% - 120px);
+    }
+    .brand-title {
+      font-weight: 800;
+      font-size: 15px;
+      color: #1b4332;
+      margin-right: 6px;
+      white-space: nowrap;
+    }
+    .search-input, .filter-select {
+      padding: 7px 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+    }
+    .search-input { width: 230px; }
+    .search-input:focus, .filter-select:focus { border-color: #2d6a4f; }
+    .btn {
+      padding: 7px 13px;
+      border: none;
+      border-radius: 6px;
+      background: #2d6a4f;
+      color: #fff;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #1b4332; }
+    .btn-secondary { background: #495057; }
+    .btn-secondary:hover { background: #212529; }
+
+    .fraccion-badge {
+      background: rgba(180, 0, 0, 0.92);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 13px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      white-space: nowrap;
+      text-align: center;
+    }
+    .manzana-label {
+      background: rgba(255, 255, 255, 0.90);
+      color: #800000;
+      font-weight: 800;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      border: 1.5px solid #800000;
+      white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    /* Etiqueta permanente en cada lote (N° de lote + Precio en formato "900mil") */
+    .lote-tag-container {
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transform: translate(-50%, -50%);
+      white-space: nowrap;
+    }
+    .lote-num-badge {
+      font-weight: 800;
+      font-size: 9.5px;
+      color: #111111;
+      text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+      line-height: 1.05;
+    }
+    .lote-price-badge {
+      background: rgba(17, 24, 39, 0.86);
+      color: #fef08a;
+      font-weight: 700;
+      font-size: 8.5px;
+      padding: 1px 3.5px;
+      border-radius: 3px;
+      border: 0.5px solid rgba(255,255,255,0.6);
+      line-height: 1.1;
+      margin-top: 1px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+    }
+    .lote-price-badge.reservado {
+      background: rgba(180, 83, 9, 0.90);
+      color: #ffffff;
+    }
+
+    /* Escalado automático según el zoom del mapa */
+    .zoom-low .lote-price-badge { display: none; }
+    .zoom-low .lote-num-badge { font-size: 8px; }
+    .zoom-high .lote-num-badge { font-size: 11px; }
+    .zoom-high .lote-price-badge { font-size: 10px; padding: 1.5px 4.5px; }
+
+    .legend {
+      position: absolute;
+      bottom: 24px;
+      left: 14px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.94);
+      padding: 10px 14px;
+      border-radius: 8px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.22);
+      font-size: 12.5px;
+      line-height: 1.8;
+    }
+    .legend-title { font-weight: 700; margin-bottom: 4px; color: #222; }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid #222; display: inline-block; }
+
+    .popup-table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 5px; }
+    .popup-table th, .popup-table td { border-bottom: 1px solid #e9ecef; padding: 5px 8px; text-align: left; }
+    .popup-table th { color: #495057; font-weight: 600; width: 42%; }
+    .popup-header {
+      background: #1b4332;
+      color: white;
+      padding: 7px 10px;
+      border-radius: 5px 5px 0 0;
+      font-weight: 700;
+      font-size: 14px;
+      margin: -13px -19px 8px -19px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <span class="brand-title">FRACCIÓN 1 - EDELIO</span>
+    <input type="text" id="searchInput" class="search-input" list="searchSuggestions"
+           placeholder="Buscar Fracción (1 - EDELIO), Mz o ID (ej: 1-1-15)..." />
+    <datalist id="searchSuggestions"></datalist>
+    <button class="btn" id="btnSearch">Buscar</button>
+    <select id="filterEstado" class="filter-select">
+      <option value="TODOS">Estado: Todos (38 Lotes)</option>
+      <option value="Libre">Libre (34 Lotes)</option>
+      <option value="Reservado">Reservado (4 Lotes)</option>
+      <option value="Vendido">Vendido</option>
+    </select>
+    <select id="labelMode" class="filter-select" title="Cambiar texto visible sobre los lotes">
+      <option value="AMBOS" selected>Etiqueta: Lote + Cuota (ej: 900mil)</option>
+      <option value="SOLO_PRECIO">Etiqueta: Solo Cuota (ej: 900mil)</option>
+      <option value="CONTADO">Etiqueta: Lote + Contado (ej: 70,2M)</option>
+      <option value="SOLO_LOTE">Etiqueta: Solo N° de Lote</option>
+    </select>
+    <button class="btn btn-secondary" id="btnReset">Vista General</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="legend">
+    <div class="legend-title">Referencias</div>
+    <div class="legend-item"><span class="swatch" style="background: rgba(46, 204, 113, 0.55);"></span> Lote Libre (con cuota en mil)</div>
+    <div class="legend-item"><span class="swatch" style="background: rgba(241, 196, 15, 0.65);"></span> Lote Reservado (RES.)</div>
+    <div class="legend-item"><span class="swatch" style="background: rgba(231, 76, 60, 0.65);"></span> Lote Vendido</div>
+    <div class="legend-item"><span class="swatch" style="background: transparent; border: 2px dashed #ff6b00;"></span> Límite de Manzana</div>
+    <div class="legend-item"><span class="swatch" style="background: transparent; border: 2.5px solid #d00000;"></span> Polígono General (Búsqueda)</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="FRACCION_0.js"></script>
+  <script src="fraccion_5.js"></script>
+  <script src="FRACCIONcopiar_4.js"></script>
+  <script src="MANZANAS_7.js"></script>
+  <script src="Combinado_3.js"></script>
+
+  <script>
+    var googleSat = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+      maxZoom: 22,
+      attribution: '© Google Satellite'
+    });
+    var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 22,
+      attribution: '© Google Hybrid'
+    });
+    var googleStreets = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 22,
+      attribution: '© Google Maps'
+    });
+
+    var map = L.map('map', {
+      center: [-25.0146, -57.5562],
+      zoom: 19,
+      layers: [googleSat]
+    });
+
+    // Función automática para abreviar "950.000 Gs." -> "950mil" y "74.100.000 Gs." -> "74,1M"
+    function formatearCuotaCorta(cuotaStr, estadoStr) {
+      if (!cuotaStr || !cuotaStr.trim()) {
+        return (estadoStr && estadoStr.toLowerCase().indexOf('reserv') !== -1) ? 'RES.' : '';
+      }
+      var limpio = cuotaStr.replace(/Gs\.?/gi, '').trim();
+      if (limpio.slice(-4) === '.000') {
+        return limpio.slice(0, -4) + 'mil';
+      }
+      return limpio;
+    }
+
+    function formatearContadoCorto(contadoStr, estadoStr) {
+      if (!contadoStr || !contadoStr.trim()) {
+        return (estadoStr && estadoStr.toLowerCase().indexOf('reserv') !== -1) ? 'RES.' : '';
+      }
+      var num = parseInt(contadoStr.replace(/\D/g, ''), 10);
+      if (!isNaN(num) && num >= 1000000) {
+        var millones = (num / 1000000).toFixed(1).replace('.0', '').replace('.', ',');
+        return millones + 'M';
+      }
+      return contadoStr;
+    }
+
+    var layerFraccionGeneral = L.geoJSON(json_FRACCION_0, {
+      style: {
+        color: '#d00000',
+        weight: 3,
+        fillColor: '#ff0000',
+        fillOpacity: 0.04
+      },
+      onEachFeature: function(feature, layer) {
+        var nombre = feature.properties['FRACCIONES_Código - Nombre de Fracción'] || '1 - EDELIO';
+        layer.bindPopup(
+          '<div class="popup-header">' + nombre + '</div>' +
+          '<table class="popup-table">' +
+          '<tr><th>Lugar</th><td>Costa Guazú (Costa Linda)</td></tr>' +
+          '<tr><th>Distrito</th><td>Benjamín Aceval</td></tr>' +
+          '<tr><th>Departamento</th><td>Pdte. Hayes</td></tr>' +
+          '<tr><th>Propietaria</th><td>Edelio Cabrera Cabrera</td></tr>' +
+          '</table>'
+        );
+      }
+    }).addTo(map);
+
+    var layerFraccionPunto = L.geoJSON(json_FRACCIONcopiar_4, {
+      pointToLayer: function(feature, latlng) {
+        var texto = feature.properties['FRACCIONES_Código - Nombre de Fracción'] || '1 - EDELIO';
+        return L.marker(latlng, {
+          icon: L.divIcon({
+            className: '',
+            html: '<div class="fraccion-badge">📍 ' + texto + '</div>',
+            iconSize: [140, 32],
+            iconAnchor: [70, 16]
+          })
+        });
+      },
+      onEachFeature: function(feature, layer) {
+        var infoDist = (json_fraccion_5 && json_fraccion_5.features[0]) ? json_fraccion_5.features[0].properties : {};
+        layer.bindPopup(
+          '<div class="popup-header">' + feature.properties['FRACCIONES_Código - Nombre de Fracción'] + '</div>' +
+          '<table class="popup-table">' +
+          '<tr><th>Código Fracción</th><td>' + (feature.properties.FRACCION || '1') + '</td></tr>' +
+          '<tr><th>Distrito</th><td>' + (infoDist.DISTRITO || 'Benjamín Aceval') + '</td></tr>' +
+          '<tr><th>Departamento</th><td>' + (infoDist.DEPARTAMENTO || 'Pdte. Hayes') + '</td></tr>' +
+          '</table>'
+        );
+      }
+    }).addTo(map);
+
+    var layerManzanas = L.geoJSON(json_MANZANAS_7, {
+      style: {
+        color: '#ff6b00',
+        weight: 2.2,
+        dashArray: '6, 4',
+        fillOpacity: 0.0
+      },
+      onEachFeature: function(feature, layer) {
+        var center = layer.getBounds().getCenter();
+        L.marker(center, {
+          interactive: false,
+          icon: L.divIcon({
+            className: '',
+            html: '<div class="manzana-label">MZ. ' + feature.properties.id + '</div>',
+            iconSize: [54, 22],
+            iconAnchor: [27, 11]
+          })
+        }).addTo(map);
+      }
+    }).addTo(map);
+
+    var lotesIndex = {};
+    var loteLabelsGroup = L.layerGroup().addTo(map);
+    var loteMarkersData = [];
+
+    function estiloLote(feature) {
+      var est = (feature.properties.Estado || 'Libre').toLowerCase();
+      var fill = '#2ecc71';
+      if (est.indexOf('vendido') !== -1 || est.indexOf('cancelado') !== -1) fill = '#e74c3c';
+      else if (est.indexOf('reservado') !== -1 || est.indexOf('(r)') !== -1) fill = '#f1c40f';
+      return {
+        color: '#1e1e1e',
+        weight: 1.2,
+        fillColor: fill,
+        fillOpacity: 0.58
+      };
+    }
+
+    function construirHtmlEtiqueta(p, modo) {
+      var cuotaCorta = p.Cuota_Corta || formatearCuotaCorta(p.Cuota, p.Estado);
+      var contadoCorto = formatearContadoCorto(p.Contado, p.Estado);
+      var esRes = (p.Estado || '').toLowerCase().indexOf('reserv') !== -1;
+      var clsBadge = 'lote-price-badge' + (esRes ? ' reservado' : '');
+
+      if (modo === 'SOLO_LOTE') {
+        return '<div class="lote-tag-container"><span class="lote-num-badge">' + p.Lote + '</span></div>';
+      }
+      if (modo === 'SOLO_PRECIO') {
+        return '<div class="lote-tag-container">' +
+               (cuotaCorta ? '<span class="' + clsBadge + '">' + cuotaCorta + '</span>' : '<span class="lote-num-badge">' + p.Lote + '</span>') +
+               '</div>';
+      }
+      if (modo === 'CONTADO') {
+        return '<div class="lote-tag-container">' +
+               '<span class="lote-num-badge">L.' + p.Lote + '</span>' +
+               (contadoCorto ? '<span class="' + clsBadge + '">' + contadoCorto + '</span>' : '') +
+               '</div>';
+      }
+      // Por defecto: AMBOS (Número de lote + Cuota en formato "900mil")
+      return '<div class="lote-tag-container">' +
+             '<span class="lote-num-badge">L.' + p.Lote + '</span>' +
+             (cuotaCorta ? '<span class="' + clsBadge + '">' + cuotaCorta + '</span>' : '') +
+             '</div>';
+    }
+
+    // Calcular centroide geométrico del polígono para ubicar la etiqueta con precisión
+    function centroidePoligono(coords) {
+      var ring = coords[0];
+      var sx = 0, sy = 0, n = ring.length - 1;
+      if (n <= 0) return L.latLng(ring[0][1], ring[0][0]);
+      for (var i = 0; i < n; i++) {
+        sx += ring[i][0];
+        sy += ring[i][1];
+      }
+      return L.latLng(sy / n, sx / n);
+    }
+
+    var layerLotes = L.geoJSON(json_Combinado_3, {
+      style: estiloLote,
+      onEachFeature: function(feature, layer) {
+        var p = feature.properties;
+        lotesIndex[p.ID.toUpperCase()] = layer;
+        lotesIndex[('MZ ' + p.Manzana + ' LOTE ' + p.Lote).toUpperCase()] = layer;
+
+        var cuotaTxt = p.Cuota ? (p.Cuota + (p.Cantidad_Cuotas ? ' (' + p.Cantidad_Cuotas + ' cuotas)' : '')) : 'Reservado';
+        var popupHtml =
+          '<div class="popup-header">Lote ' + p.Lote + ' — Manzana ' + p.Manzana + ' (ID: ' + p.ID + ')</div>' +
+          '<table class="popup-table">' +
+          '<tr><th>ID</th><td><b>' + p.ID + '</b></td></tr>' +
+          '<tr><th>Fracción</th><td>1 - EDELIO</td></tr>' +
+          '<tr><th>Manzana</th><td>' + p.Manzana + '</td></tr>' +
+          '<tr><th>Lote</th><td>' + p.Lote + '</td></tr>' +
+          '<tr><th>Superficie Plano</th><td>' + p.Superficie + ' m² (Tabla: ' + (p.Superficie_Tabla || '-') + ' m²)</td></tr>' +
+          '<tr><th>Dimensiones</th><td>' + (p.Lados || '-') + '</td></tr>' +
+          '<tr><th>Estado</th><td><b>' + p.Estado + '</b></td></tr>' +
+          '<tr><th>Monto Cuota</th><td><b>' + cuotaTxt + '</b></td></tr>' +
+          '<tr><th>Importe Total</th><td>' + (p.Total || '-') + '</td></tr>' +
+          '<tr><th>Descuento Contado</th><td>' + (p.Descuento || '-') + '</td></tr>' +
+          '<tr><th>Precio Contado</th><td><b>' + (p.Contado || '-') + '</b></td></tr>' +
+          '</table>';
+        layer.bindPopup(popupHtml);
+
+        layer.on('mouseover', function() {
+          this.setStyle({ weight: 2.8, color: '#ffffff', fillOpacity: 0.80 });
+        });
+        layer.on('mouseout', function() {
+          layerLotes.resetStyle(this);
+        });
+
+        var c = centroidePoligono(feature.geometry.coordinates);
+        var marker = L.marker(c, {
+          interactive: false,
+          icon: L.divIcon({
+            className: '',
+            html: construirHtmlEtiqueta(p, 'AMBOS'),
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+          })
+        });
+        loteLabelsGroup.addLayer(marker);
+        loteMarkersData.push({ marker: marker, props: p });
+      }
+    }).addTo(map);
+
+    // Actualizar modo de etiqueta (Lote + Cuota 900mil / Solo Cuota / Contado / Solo Lote)
+    document.getElementById('labelMode').addEventListener('change', function() {
+      var modo = this.value;
+      loteMarkersData.forEach(function(item) {
+        item.marker.setIcon(L.divIcon({
+          className: '',
+          html: construirHtmlEtiqueta(item.props, modo),
+          iconSize: [0, 0],
+          iconAnchor: [0, 0]
+        }));
+      });
+    });
+
+    // Ajustar tamaño de fuente de las etiquetas según el nivel de zoom
+    function actualizarClaseZoom() {
+      var z = map.getZoom();
+      var mapEl = document.getElementById('map');
+      mapEl.classList.remove('zoom-low', 'zoom-high');
+      if (z <= 17) mapEl.classList.add('zoom-low');
+      else if (z >= 20) mapEl.classList.add('zoom-high');
+    }
+    map.on('zoomend', actualizarClaseZoom);
+    actualizarClaseZoom();
+
+    var datalist = document.getElementById('searchSuggestions');
+    ['1 - EDELIO', 'MANZANA 1', 'MANZANA 2'].forEach(function(item) {
+      var opt = document.createElement('option');
+      opt.value = item;
+      datalist.appendChild(opt);
+    });
+    json_Combinado_3.features.forEach(function(f) {
+      var p = f.properties;
+      var opt = document.createElement('option');
+      opt.value = p.ID + ' (Mz ' + p.Manzana + ' - Lote ' + p.Lote + ' - ' + (p.Cuota_Corta || p.Estado) + ')';
+      datalist.appendChild(opt);
+    });
+
+    function ejecutarBusqueda() {
+      var q = document.getElementById('searchInput').value.trim().toUpperCase();
+      if (!q) return;
+
+      if (q.indexOf('EDELIO') !== -1 || q === '1') {
+        map.fitBounds(layerFraccionGeneral.getBounds(), { padding: [30, 30] });
+        return;
+      }
+      if (q === 'MANZANA 1' || q === 'MZ 1') {
+        layerManzanas.eachLayer(function(l) {
+          if (l.feature.properties.id === '1') map.fitBounds(l.getBounds(), { padding: [30, 30] });
+        });
+        return;
+      }
+      if (q === 'MANZANA 2' || q === 'MZ 2') {
+        layerManzanas.eachLayer(function(l) {
+          if (l.feature.properties.id === '2') map.fitBounds(l.getBounds(), { padding: [30, 30] });
+        });
+        return;
+      }
+
+      var idClean = q.split(' ')[0];
+      var target = lotesIndex[idClean] || lotesIndex[q];
+      if (target) {
+        map.fitBounds(target.getBounds(), { maxZoom: 20, padding: [40, 40] });
+        target.openPopup();
+      } else {
+        alert('No se encontró "' + q + '". Prueba con 1-1-1 hasta 1-1-29 o 1-2-1 hasta 1-2-9.');
+      }
+    }
+
+    document.getElementById('btnSearch').addEventListener('click', ejecutarBusqueda);
+    document.getElementById('searchInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') ejecutarBusqueda();
+    });
+
+    document.getElementById('filterEstado').addEventListener('change', function() {
+      var val = this.value;
+      layerLotes.eachLayer(function(layer) {
+        var est = layer.feature.properties.Estado || 'Libre';
+        if (val === 'TODOS' || est.toLowerCase() === val.toLowerCase()) {
+          layer.setStyle(estiloLote(layer.feature));
+        } else {
+          layer.setStyle({ fillOpacity: 0.05, color: '#666', weight: 0.6 });
+        }
+      });
+    });
+
+    document.getElementById('btnReset').addEventListener('click', function() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('filterEstado').value = 'TODOS';
+      layerLotes.eachLayer(function(l) { layerLotes.resetStyle(l); });
+      map.fitBounds(layerFraccionGeneral.getBounds(), { padding: [20, 20] });
+    });
+
+    var baseMaps = {
+      "Google Satélite": googleSat,
+      "Google Híbrido (Satélite + Calles)": googleHybrid,
+      "Google Maps (Calles)": googleStreets
+    };
+    var overlayMaps = {
+      "Polígono General (1 - EDELIO)": layerFraccionGeneral,
+      "Nombre y Código de Fracción": layerFraccionPunto,
+      "Polígonos de Manzanas": layerManzanas,
+      "Lotes (38 Lotes)": layerLotes,
+      "Precios y Numeración en Lotes": loteLabelsGroup
+    };
+    L.control.layers(baseMaps, overlayMaps, { collapsed: false, position: 'topright' }).addTo(map);
+
+    map.fitBounds(layerFraccionGeneral.getBounds(), { padding: [20, 20] });
+  </script>
+</body>
+</html>
